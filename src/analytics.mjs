@@ -63,6 +63,9 @@ export function projectProducts(checks, settings = {}) {
     }
     const user = settings[asin] || {};
     const target = user.targetCents ?? null;
+    const legacyMinimum = user.legacyMinimumCents ?? null;
+    const historicalMinimumIsLegacy = legacyMinimum !== null &&
+      (!lowest || legacyMinimum < lowest.cents);
     const gap = current !== null && target !== null ? current - target : null;
     const windows = Object.fromEntries(Object.entries(cutoffs).map(([period, cutoff]) =>
       [period, statistics(prices.filter(p => Date.parse(p.checkedAt) >= cutoff))]));
@@ -85,8 +88,11 @@ export function projectProducts(checks, settings = {}) {
         ? roundPercent((current - previous) / previous) : null,
       lastVerifiedPriceCents: recentPrice?.cents ?? null,
       lastVerifiedAt: recentPrice?.checkedAt ?? null,
-      lowestPriceCents: lowest?.cents ?? null,
-      lowestPriceAt: lowest?.checkedAt ?? null,
+      lowestPriceCents: historicalMinimumIsLegacy ? legacyMinimum : lowest?.cents ?? null,
+      lowestPriceAt: historicalMinimumIsLegacy ? null : lowest?.checkedAt ?? null,
+      lowestPriceSource: historicalMinimumIsLegacy ? 'legacy-sheet' : lowest ? 'observation' : null,
+      lowestObservedPriceCents: lowest?.cents ?? null,
+      legacyMinimumCents: legacyMinimum,
       highestPriceCents: highest?.cents ?? null,
       highestPriceAt: highest?.checkedAt ?? null,
       averagePriceCents: prices.length
@@ -94,9 +100,11 @@ export function projectProducts(checks, settings = {}) {
       verifiedCount: prices.length,
       priceChangeCount: changes,
       lastPriceChangeAt: lastChangeAt,
-      aboveMinimumCents: current !== null && lowest ? current - lowest.cents : null,
-      aboveMinimumPercent: current !== null && lowest
-        ? roundPercent((current - lowest.cents) / lowest.cents) : null,
+      aboveMinimumCents: current !== null && (historicalMinimumIsLegacy || lowest)
+        ? current - (historicalMinimumIsLegacy ? legacyMinimum : lowest.cents) : null,
+      aboveMinimumPercent: current !== null && (historicalMinimumIsLegacy || lowest)
+        ? roundPercent((current - (historicalMinimumIsLegacy ? legacyMinimum : lowest.cents)) /
+          (historicalMinimumIsLegacy ? legacyMinimum : lowest.cents)) : null,
       targetCents: target,
       note: user.note ?? '',
       targetGapCents: gap,
@@ -132,11 +140,13 @@ export function validateSettings(products) {
   for (const [asin, product] of Object.entries(products)) {
     if (!/^[A-Z0-9]{10}$/.test(asin) || !product || typeof product !== 'object' ||
         (product.targetCents != null && !validCents(product.targetCents)) ||
+        (product.legacyMinimumCents != null && !validCents(product.legacyMinimumCents)) ||
         (product.note != null && typeof product.note !== 'string')) {
       throw new TypeError('invalid target/notes for ' + asin);
     }
     settings[asin] = {
       targetCents: product.targetCents ?? null,
+      legacyMinimumCents: product.legacyMinimumCents ?? null,
       note: product.note ?? ''
     };
   }
