@@ -7,7 +7,7 @@
     "node": ">=26 <27"
   },
   "scripts": {
-    "check": "node --check src/analytics.mjs && node --check src/state.mjs && node --check src/monitor.mjs && node --check scripts/build-release.mjs",
+    "check": "node --check src/legacy-sheet.mjs && node --check src/analytics.mjs && node --check src/state.mjs && node --check src/monitor.mjs && node --check scripts/build-release.mjs",
     "test": "node tests/test-state.mjs && node tests/test-cli.mjs && node tests/test-analytics.mjs",
     "build": "node scripts/build-release.mjs"
   }

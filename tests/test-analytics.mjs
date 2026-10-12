@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { reconcile, updateProduct, validateState, wishlistIdentity } from '../src/state.mjs';
+import { reconcile, updateProduct, importSettings, validateState, wishlistIdentity } from '../src/state.mjs';
 import { projectProducts } from '../src/analytics.mjs';
 
 const url = 'https://www.amazon.it/hz/wishlist/ls/SYNTHETIC123';
@@ -123,4 +123,18 @@ const clean = projectProducts(state.checks, {
   B012345678: { targetCents: 3000, note: 'Aspettare saldi' }
 });
 assert.equal(clean.B012345678.lowestPriceCents, 2700);
+const imported = importSettings(state, url, [
+  { asin: 'B012345678', targetCents: 2200, legacyMinimumCents: 1900, note: 'Legacy note' },
+  { asin: 'B000000000', targetCents: 1000, legacyMinimumCents: 900 }
+], time[4]);
+assert.equal(imported.imported, 1);
+assert.equal(imported.skipped, 1);
+assert.equal(imported.state.products.B012345678.targetCents, 2200);
+assert.equal(imported.state.products.B012345678.lowestPriceCents, 1900);
+assert.equal(imported.state.products.B012345678.lowestPriceAt, null);
+assert.equal(imported.state.products.B012345678.lowestPriceSource, 'legacy-sheet');
+assert.equal(imported.state.products.B012345678.lowestObservedPriceCents, 2700);
+assert.equal(imported.state.products.B012345678.note, 'Legacy note');
+assert.equal(imported.state.checks.length, 5);
+validateState(imported.state, identity);
 console.log('monitor detailed price analytics, targets and v1 migration: PASS');

@@ -2,6 +2,7 @@
   "version": 2,
   "goals": {
     "check": [
+      "check-legacy-sheet",
       "check-analytics",
       "check-state",
       "check-runtime",
@@ -97,6 +98,16 @@
         "args": [
           "--check",
           "src/analytics.mjs"
+        ]
+      }
+    },
+    "check-legacy-sheet": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "src/legacy-sheet.mjs"
         ]
       }
     }

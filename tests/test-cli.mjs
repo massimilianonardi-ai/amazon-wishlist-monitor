@@ -69,6 +69,35 @@ try {
   ]);
   assert.equal(r.status, 1);
   assert.equal(JSON.parse(await fs.readFile(state, 'utf8')).products.B012345678.targetCents, 2599);
+  const headers = [
+    'ASIN', 'Descrizione', 'Prezzo attuale (€)',
+    'Differenza dal precedente (€)', 'Prezzo minimo monitorato (€)',
+    'Target (€)', 'Scostamento (€)', 'Stato', 'Nota Amazon',
+    'URL Amazon', 'Ultimo controllo', 'Target notificato (€)'
+  ];
+  const csv = path.join(temp, 'import.csv');
+  const cells = ['B012345678', 'A product', '€ 31,00', '',
+    '€ 20,00', '€ 27,50', '', '', 'Note, speciali', '', '', ''];
+  const encode = c => '"' + String(c).replaceAll('"','""') + '"';
+  await fs.writeFile(csv, [headers.map(encode).join(','),
+    cells.map(encode).join(',')].join('\r\n') + '\r\n');
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'import-sheet', state, csv
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).imported, 1);
+  edited = JSON.parse(await fs.readFile(state, 'utf8'));
+  assert.equal(edited.products.B012345678.targetCents, 2750);
+  assert.equal(edited.products.B012345678.lowestPriceCents, 2000);
+  assert.equal(edited.products.B012345678.lowestPriceSource, 'legacy-sheet');
+  assert.equal(edited.products.B012345678.note, 'Note, speciali');
+  assert.equal(edited.checks.length, 2);
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'baseline', state, 'B012345678', '18,00'
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  edited = JSON.parse(await fs.readFile(state, 'utf8'));
+  assert.equal(edited.products.B012345678.lowestPriceCents, 1800);
   const contentAfterEdits = await fs.readFile(state, 'utf8');
   const lock = state + '.lock';
   await fs.writeFile(lock, 'busy');
