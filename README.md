@@ -1,68 +1,90 @@
 # amazon-wishlist-monitor
 
-A deterministic, notification-free Amazon.it wishlist observation-history recorder. This project is separate from amazon-wishlist-extract: it invokes the already released extractor through its public command, never duplicates its HTML/browser implementation.
+Monitor Amazon.it wishlist prices over time. Uses the independently released **amazon-wishlist-extract** command, without copying its parsing/browser logic. The monitor is responsible for **price analysis and product tracking**, not just raw snapshots. Notifications, notification acknowledgments, Gmail, Sheets writes, scheduling and delivery policy are separate responsibilities.
 
-## Usage
+## Monitoring one wishlist
 
-Requires the installed amazon-wishlist-extract command, Node.js 26, and a running web-control 2 service with access to the target Amazon.it wishlist.
+Requires installed `amazon-wishlist-extract`, Node.js 26, and running `web-control 2`.
 
-    amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' /path/to/watch-state.json
+```sh
+amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' ./watch-state.json
+```
 
-The JSON state file **need not exist** on the first run. On success, stdout contains a small JSON summary; the history is kept at the supplied pathname.
+The state JSON is created when absent. Every successful complete extraction updates it. Subsequent runs accept and **migrate existing v0.1.0 (v1) JSON files automatically**, preserving the prior complete history. An incomplete, blocked or failed extraction does not update the state. A different wishlist ID cannot reuse the same state file.
 
-For an m-managed installation:
+Under `m`:
 
-    pkg install amazon-wishlist-extract amazon-wishlist-monitor
-    pkg provider default web-control electron-web-control
-    srv start web-control
-    amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' ./watch-state.json
+```sh
+pkg install amazon-wishlist-extract amazon-wishlist-monitor
+pkg provider default web-control electron-web-control
+srv start web-control
+amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' ./watch-state.json
+```
 
-The extractor is an independent ordinary package, **not** a facility. The catalog cannot declare it as a fake facility dependency. Both packages must be installed. The monitor does not install packages implicitly.
+## Product monitoring model (JSON v2)
 
-## State
+`amazon-wishlist-monitor/v2` has two complementary structures:
 
-Each successful inspection appends a complete timestamped snapshot to checks. Example:
+- `checks[]`: complete timestamped extraction snapshots, preserving the original ASIN membership and the verified/unverified price for **every successful check**. Previous checks are never discarded.
+- `products[ASIN]`: current materialized analysis, derived deterministically from those checks and user-owned targets/notes. Products that disappear from a complete wishlist have `active:false` but retain their price history and configuration.
 
-    {
-      "format": "amazon-wishlist-monitor/v1",
-      "wishlistUrl": "https://www.amazon.it/hz/wishlist/ls/EXAMPLE",
-      "createdAt": "2026-10-12T12:00:00.000Z",
-      "checks": [
-        {
-          "checkedAt": "2026-10-12T12:00:00.000Z",
-          "completionReason": "stable-bottom",
-          "itemCount": 1,
-          "items": [{
-            "asin": "B012345678",
-            "title": "Example",
-            "url": "https://www.amazon.it/dp/B012345678",
-            "purchaseAction": "add-to-cart",
-            "price": {"verified": true, "currency": "EUR", "cents": 3200}
-          }]
-        }
-      ],
-      "lastCheckedAt": "2026-10-12T12:00:00.000Z",
-      "updatedAt": "2026-10-12T12:00:00.000Z"
-    }
+For each ASIN, the monitor calculates:
 
-* Old checks are retained unchanged; every successful poll is recorded, even with identical prices.
-* Products removed from the wishlist disappear only from later snapshots; historical presence and prices remain available.
-* Verified prices are positive integer euro cents. Unverified prices retain verified:false and a reason, never guessed values.
-* Only complete, nonblocked, consistent extractions are accepted. A failed/partial/empty extraction, list-identity mismatch, duplicated ASIN, invalid JSON state, or stale timestamp leaves the existing state untouched.
-* The extractor's stable-bottom-spinner-markers completion reason remains explicit evidence of residual uncertainty rather than being silently upgraded.
-* The file is atomically replaced via a sibling temporary file for each successful append; history is **logically append-only**, not an append-only filesystem stream.
-* A sibling .lock file guards against two competing monitor invocations on the same state file. A stale lock after a crash requires human or higher-level operational resolution, not automatic theft of ownership. This is cooperative locking, not protection from unrelated writers.
-* Newly created state files and lock files use owner-only permissions (0600). The containing directory should also be chosen appropriately by the caller.
+| Field | Meaning |
+| --- | --- |
+| `currentPriceCents` | Latest **verified** quote only if product is present in the latest wishlist; otherwise `null` |
+| `previousVerifiedPriceCents` | Previous verified quote for the current product |
+| `priceDifferenceCents`, `priceDifferencePercent` | Absolute/percentage change from previous verified quote |
+| `lowestPriceCents`, `lowestPriceAt`, `lowestPriceSource` | Lowest known price, date when established by a monitor observation, and provenance |
+| `lowestObservedPriceCents` | Lowest **actual extractor-observed** price |
+| `highestPriceCents`, `highestPriceAt`, `averagePriceCents` | Observed maximum and sample mean (each verified observation weighted equally) |
+| `lastVerifiedPriceCents`, `lastVerifiedAt` | Last known verified quote, retained even when current price is unavailable |
+| `verifiedCount`, `priceChangeCount`, `lastPriceChangeAt` | Price observation/change frequency |
+| `aboveMinimumCents`, `aboveMinimumPercent` | Latest price distance from lowest known price |
+| `targetCents`, `targetGapCents`, `targetReached` | User-defined target and difference/status based only on verified *current* price |
+| `note`, `legacyMinimumCents` | User-owned notes and imported historical minimum |
+| `active`, `firstSeenAt`, `lastSeenAt`, `latestObservation` | Membership and current price-verification evidence |
+| `windows['7d']`, `windows['30d']` | Recent verified sample count, min/max/average, first/last, difference and percent change |
 
-The createdAt and updatedAt metadata are file-history timestamps; the final lastCheckedAt records the extractor's observation time.
+`summary` aggregates current listed/tracked counts, verified and unavailable current quotes, targets reached/above/missing, newly discovered and no-longer-listed products. All prices are integer **EUR cents**. Percentage figures are rounded to two decimal places. Time windows are relative to the most recent successful check.
 
-## Deliberate boundary
+A product's current quote is **not** silently backfilled from old observations when the extractor cannot verify the latest price. Its last known verified price is preserved separately. Missing products are not treated as purchased or deleted. Historical minima imported from the legacy sheet lack a trusted observation timestamp and are marked `lowestPriceSource:'legacy-sheet'`, with `lowestPriceAt:null`.
 
-This project does not select notification thresholds, send messages, perform Gmail or Google Sheets I/O, store a delivery acknowledgment, choose a polling cadence, or contact ChatGPT. Another component can consume the JSON history and decide what, when and how to notify.
+`lastCheckedAt` is the observation time; `createdAt` and `updatedAt` describe persisted state lifecycle. No target-reached notification is emitted here; other components determine what to notify and when.
 
-## Development and evidence
+## Set target, note and historical minimum
 
-    npm test
-    npm run build
+```sh
+amazon-wishlist-monitor target ./watch-state.json B012345678 390,00
+amazon-wishlist-monitor note ./watch-state.json B012345678 "Attendere sconto"
+amazon-wishlist-monitor baseline ./watch-state.json B012345678 375,00
+```
 
-The portable release is constructed by scripts/build-release.mjs. mk.json supports canonical check, test, and build goals. The CLI tests exercise real Node subprocess/file writes with a synthetic implementation of the extractor's public command. They do not claim live Amazon.it validation; the real amazon-wishlist-extract project owns the browser integration.
+Use `clear` as the amount to unset a target or imported baseline, or as the note text to clear a note. Target and notes survive subsequent extraction cycles. These edit operations **do not** append a price observation. Importing an historical minimum never replaces a smaller already recorded minimum with a larger value.
+
+## Import existing Google Sheet values without depending on Google
+
+The existing "Amazon Price Monitor" spreadsheet has the tabs **Watch** and **Star Wars**. To migrate existing targets, notes and prior monitored minima, export **each tab separately** using the Google Sheets **File → Download → Comma separated values (.csv)** command, then run:
+
+```sh
+amazon-wishlist-monitor import-sheet ./watch-state.json ./Watch.csv
+```
+
+Use `Star Wars.csv` with the separate Star Wars monitor state. This command reads the known 12-column spreadsheet schema and imports the target (F), prior minimum (E) and notes (I), without importing sheet rows as wishlist membership or writing to Google. It does not import notification acknowledgment (L), because notification delivery remains external. Product ASINs absent from the monitor's observed history are counted as skipped. The previous monitor state is not changed if import validation fails. Only use exports you trust; values are input data, not commands.
+
+The spreadsheet remains unchanged and no online Google access is required when running the monitor. A legacy minimum is historical evidence provided by the user, not a fake Amazon observation, and is tracked separately from the lowest observed price.
+
+## Persistence and safety
+
+Updates are serialized by a sibling `.lock` file and committed through a sibling temporary file and atomic rename. Existing history is preserved in the new JSON document. A crash may leave a stale lock requiring operator review; no automatic unsafe lock-stealing is performed. The monitor does not produce immutable append-only filesystem logs or protect against third-party processes that ignore the lock.
+
+A full snapshot is intentionally stored for each successful check. As history grows, JSON storage and full-history analytics may become costly; compaction/storage-engine redesign is a separate, explicit work item, not an automatic loss of historical detail.
+
+## Development
+
+```sh
+npm test
+npm run build
+```
+
+`mk.json` provides the canonical `check`, `test` and `build` lifecycle. Synthetic extraction and CSV fixtures cover state calculations and file operations; hosted integration exercises the managed CLI. These tests do not claim authenticated live Amazon.it acceptance or migration of the user's actual Sheets without a CSV export.

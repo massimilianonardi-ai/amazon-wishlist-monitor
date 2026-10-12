@@ -32,8 +32,8 @@ jobs:
         run: '"$RUNNER_TEMP/rumiai-os/m" mk --project "$PWD" check test build'
       - name: Verify release archive
         run: |
-          test -s dist/amazon-wishlist-monitor-v0.1.0-all.tar.gz
-          tar -tzf dist/amazon-wishlist-monitor-v0.1.0-all.tar.gz > /tmp/amazon-monitor-files
+          test -s dist/amazon-wishlist-monitor-v0.2.0-all.tar.gz
+          tar -tzf dist/amazon-wishlist-monitor-v0.2.0-all.tar.gz > /tmp/amazon-monitor-files
           grep -Fx 'amazon-wishlist-monitor/bin/amazon-wishlist-monitor' /tmp/amazon-monitor-files
           grep -Fx 'amazon-wishlist-monitor/src/monitor.mjs' /tmp/amazon-monitor-files
           grep -Fx 'amazon-wishlist-monitor/src/state.mjs' /tmp/amazon-monitor-files
@@ -96,7 +96,7 @@ jobs:
           ./rumiai-os/m pkg default nodejs
           ./rumiai-os/m pkg install electron-web-control@v0.1.5
           ./rumiai-os/m pkg provider default web-control electron-web-control@v0.1.5
-          ./rumiai-os/m pkg install amazon-wishlist-extract@v0.1.0 amazon-wishlist-monitor@v0.1.0
+          ./rumiai-os/m pkg install amazon-wishlist-extract@v0.1.0 amazon-wishlist-monitor@v0.2.0
           ./rumiai-os/m pkg default amazon-wishlist-monitor
           test -L rumiai-os/bin/ext/amazon-wishlist-monitor
           cat > "$RUNNER_TEMP/extract-fixture" <<'STUB'
@@ -107,5 +107,5 @@ jobs:
           STUB
           chmod 700 "$RUNNER_TEMP/extract-fixture"
           AMAZON_WISHLIST_EXTRACT_COMMAND="$RUNNER_TEMP/extract-fixture" ./rumiai-os/m amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/EXAMPLE' "$RUNNER_TEMP/monitor.json"
-          node -e 'const s=require(process.argv[1]); if(s.checks.length!==1||s.checks[0].items[0].price.cents!==1500)process.exit(1)' "$RUNNER_TEMP/monitor.json"
+          node -e 'const s=require(process.argv[1]); if(s.format!=='amazon-wishlist-monitor/v2'||s.checks.length!==1||s.checks[0].items[0].price.cents!==1500||s.products.B012345678.currentPriceCents!==1500)process.exit(1)' "$RUNNER_TEMP/monitor.json"
           echo 'Released monitor public pkg launcher and atomic state creation: PASS'
