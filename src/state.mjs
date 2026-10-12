@@ -1,4 +1,6 @@
-const FORMAT = 'amazon-wishlist-monitor/v1';
+import { projectProducts, summarizeProducts, validateSettings } from './analytics.mjs';
+const FORMAT = 'amazon-wishlist-monitor/v2';
+const LEGACY = 'amazon-wishlist-monitor/v1';
 const ASIN = /^[A-Z0-9]{10}$/;
 function utc(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) ||
@@ -62,7 +64,7 @@ function validateCheck(check) {
 export function validateState(state, wishlistUrl) {
   if (state === null) return;
   if (!state || typeof state !== 'object' || Array.isArray(state) ||
-      state.format !== FORMAT || state.wishlistUrl !== wishlistUrl ||
+      ![FORMAT, LEGACY].includes(state.format) || state.wishlistUrl !== wishlistUrl ||
       !Array.isArray(state.checks) || !state.checks.length) {
     throw new TypeError('invalid existing monitor state or mismatched wishlist');
   }
@@ -77,6 +79,15 @@ export function validateState(state, wishlistUrl) {
     previous = check.checkedAt;
   }
   if (state.lastCheckedAt !== previous) throw new TypeError('invalid lastCheckedAt');
+  if (state.format === FORMAT) {
+    const settings = validateSettings(state.products);
+    const expected = projectProducts(state.checks, settings);
+    if (JSON.stringify(state.products) !== JSON.stringify(expected) ||
+        JSON.stringify(state.summary) !==
+        JSON.stringify(summarizeProducts(expected, state.checks.at(-1)))) {
+      throw new TypeError('inconsistent derived monitoring data');
+    }
+  }
 }
 export function reconcile(previousState, observation, wishlistUrl, updatedAt = new Date().toISOString()) {
   const identity = wishlistIdentity(wishlistUrl);
@@ -110,12 +121,55 @@ export function reconcile(previousState, observation, wishlistUrl, updatedAt = n
     itemCount: items.length,
     items
   };
+  const checks = previousState ? [...previousState.checks, check] : [check];
+  const settings = previousState?.format === FORMAT
+    ? validateSettings(previousState.products) : {};
+  const products = projectProducts(checks, settings);
   return {
     format: FORMAT,
     wishlistUrl: identity,
     createdAt: previousState?.createdAt || updatedAt,
-    checks: previousState ? [...previousState.checks, check] : [check],
+    checks,
+    products,
+    summary: summarizeProducts(products, check),
     lastCheckedAt: checkedAt,
+    updatedAt
+  };
+}
+
+
+/**
+ * User-owned target and annotation update. No extraction, new price observation,
+ * threshold policy or delivery side effect. Also promotes legacy v1 state.
+ */
+export function updateProduct(state, wishlistUrl, asin, changes, updatedAt = new Date().toISOString()) {
+  const identity = wishlistIdentity(wishlistUrl);
+  utc(updatedAt);
+  validateState(state, identity);
+  if (!state || !ASIN.test(asin) || !changes || typeof changes !== 'object') {
+    throw new TypeError('valid existing state, ASIN and changes required');
+  }
+  const currentSettings = state.format === FORMAT ? validateSettings(state.products) : {};
+  const known = state.checks.some(check => check.items.some(item => item.asin === asin));
+  if (!known) throw new Error('unknown monitored ASIN ' + asin);
+  const next = { ...currentSettings[asin] };
+  if (Object.hasOwn(changes, 'targetCents')) {
+    const target = changes.targetCents;
+    if (target !== null && (!Number.isSafeInteger(target) || target <= 0)) {
+      throw new TypeError('targetCents must be positive integer cents or null');
+    }
+    next.targetCents = target;
+  }
+  if (Object.hasOwn(changes, 'note')) {
+    if (typeof changes.note !== 'string') throw new TypeError('note must be a string');
+    next.note = changes.note;
+  }
+  const products = projectProducts(state.checks, { ...currentSettings, [asin]: next });
+  return {
+    ...state,
+    format: FORMAT,
+    products,
+    summary: summarizeProducts(products, state.checks.at(-1)),
     updatedAt
   };
 }
