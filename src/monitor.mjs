@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
-import { reconcile, validateState, wishlistIdentity } from './state.mjs';
+import { reconcile, updateProduct, validateState, wishlistIdentity } from './state.mjs';
 
 const execFileAsync = promisify(execFile);
 async function readState(file, identity) {
@@ -87,24 +87,80 @@ export async function run(url, filename, { getObservation = extract } = {}) {
       verified: last.items.filter(item => item.price.verified).length,
       unverified: last.items.filter(item => !item.price.verified).length,
       historyLength: next.checks.length,
-      completionReason: last.completionReason
+      completionReason: last.completionReason,
+      summary: next.summary
     };
   } finally {
     await lockHandle.close();
     await fs.unlink(lock);
   }
 }
+
+function parseTarget(value) {
+  if (value === 'clear') return null;
+  const match = /^([1-9]\d*)(?:[.,](\d{1,2}))?$/.exec(value);
+  if (!match) throw new TypeError('target must be a positive EUR amount or clear');
+  const cents = Number(match[1]) * 100 + Number((match[2] || '').padEnd(2, '0'));
+  if (!Number.isSafeInteger(cents)) throw new TypeError('target is too large');
+  return cents;
+}
+
+export async function edit(filename, asin, changes) {
+  if (typeof filename !== 'string' || !filename.trim()) {
+    throw new TypeError('monitor JSON pathname is required');
+  }
+  const file = path.resolve(filename);
+  const lock = file + '.lock';
+  let lockHandle;
+  try {
+    lockHandle = await fs.open(lock, 'wx', 0o600);
+  } catch (error) {
+    if (error.code === 'EEXIST') throw new Error('monitor state is locked: ' + lock);
+    throw error;
+  }
+  try {
+    // Read and validate before modifying any state. Do not synthesize an
+    // arbitrary wishlist or empty monitor while editing user-owned targets.
+    const data = JSON.parse(await fs.readFile(file, 'utf8'));
+    const identity = wishlistIdentity(data.wishlistUrl);
+    validateState(data, identity);
+    const next = updateProduct(data, identity, asin, changes);
+    await atomicWrite(file, next);
+    return {
+      stateFile: file, asin,
+      targetCents: next.products[asin].targetCents,
+      note: next.products[asin].note,
+      targetReached: next.products[asin].targetReached,
+      historyLength: next.checks.length
+    };
+  } finally {
+    await lockHandle.close();
+    await fs.unlink(lock);
+  }
+}
+
 if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(process.argv[1])).href) {
-  if (process.argv.length !== 4) {
-    console.error('usage: amazon-wishlist-monitor <Amazon.it wishlist URL> <state.json>');
-    process.exitCode = 2;
-  } else {
-    try {
-      const result = await run(process.argv[2], process.argv[3]);
-      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    } catch (error) {
-      console.error('amazon-wishlist-monitor: ' + error.message);
-      process.exitCode = 1;
+  try {
+    let result;
+    if (process.argv.length === 4) {
+      result = await run(process.argv[2], process.argv[3]);
+    } else if (process.argv.length === 6 && process.argv[2] === 'target') {
+      result = await edit(process.argv[3], process.argv[4], {
+        targetCents: parseTarget(process.argv[5])
+      });
+    } else if (process.argv.length === 6 && process.argv[2] === 'note') {
+      result = await edit(process.argv[3], process.argv[4], {
+        note: process.argv[5] === 'clear' ? '' : process.argv[5]
+      });
+    } else {
+      console.error('usage: amazon-wishlist-monitor <wishlist-url> <state.json>');
+      console.error('       amazon-wishlist-monitor target <state.json> <ASIN> <EUR|clear>');
+      console.error('       amazon-wishlist-monitor note <state.json> <ASIN> <text|clear>');
+      process.exitCode = 2;
     }
+    if (result) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  } catch (error) {
+    console.error('amazon-wishlist-monitor: ' + error.message);
+    process.exitCode = 1;
   }
 }
