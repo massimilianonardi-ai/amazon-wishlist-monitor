@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { reconcile, wishlistIdentity, validateState } from '../src/state.mjs';
 
-const url = 'https://www.amazon.it/hz/wishlist/ls/33ZKBWLPZJJVO?ref_=wl_share';
+const url = 'https://www.amazon.it/hz/wishlist/ls/SYNTHETIC123?ref_=wl_share';
 const identity = wishlistIdentity(url);
 const at = '2026-10-12T12:00:00.000Z';
 const price = cents => ({ verified: true, currency: 'EUR', cents });

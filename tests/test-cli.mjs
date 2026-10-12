@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'amazon-wishlist-monitor-'));
 const state = path.join(temp, 'monitor.json');
 const extractor = path.join(temp, 'fake-extractor');
-const url = 'https://www.amazon.it/hz/wishlist/ls/33ZKBWLPZJJVO';
+const url = 'https://www.amazon.it/hz/wishlist/ls/SYNTHETIC123';
 const first = '2026-10-12T10:00:00.000Z';
 const later = '2026-10-12T14:00:00.000Z';
 const make = (checkedAt, cents, extra = {}) => ({
