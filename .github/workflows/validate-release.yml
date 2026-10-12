@@ -107,5 +107,5 @@ jobs:
           STUB
           chmod 700 "$RUNNER_TEMP/extract-fixture"
           AMAZON_WISHLIST_EXTRACT_COMMAND="$RUNNER_TEMP/extract-fixture" ./rumiai-os/m amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/EXAMPLE' "$RUNNER_TEMP/monitor.json"
-          node -e 'const s=require(process.argv[1]); if(s.format!=='amazon-wishlist-monitor/v2'||s.checks.length!==1||s.checks[0].items[0].price.cents!==1500||s.products.B012345678.currentPriceCents!==1500)process.exit(1)' "$RUNNER_TEMP/monitor.json"
+          node -e 'const s=require(process.argv[1]); if(s.format!=="amazon-wishlist-monitor/v2"||s.checks.length!==1||s.checks[0].items[0].price.cents!==1500||s.products.B012345678.currentPriceCents!==1500)process.exit(1)' "$RUNNER_TEMP/monitor.json"
           echo 'Released monitor public pkg launcher and atomic state creation: PASS'
