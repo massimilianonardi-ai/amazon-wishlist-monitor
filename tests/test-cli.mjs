@@ -50,6 +50,25 @@ try {
   ]);
   assert.equal(r.status, 1);
   assert.equal(await fs.readFile(state, 'utf8'), content);
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'target', state, 'B012345678', '25,99'
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  let edited = JSON.parse(await fs.readFile(state, 'utf8'));
+  assert.equal(edited.products.B012345678.targetCents, 2599);
+  assert.equal(edited.products.B012345678.targetGapCents, 301);
+  assert.equal(edited.checks.length, 2);
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'note', state, 'B012345678', 'Sconto interessante'
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  edited = JSON.parse(await fs.readFile(state, 'utf8'));
+  assert.equal(edited.products.B012345678.note, 'Sconto interessante');
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'target', state, 'B012345678', 'wrong'
+  ]);
+  assert.equal(r.status, 1);
+  assert.equal(JSON.parse(await fs.readFile(state, 'utf8')).products.B012345678.targetCents, 2599);
   const lock = state + '.lock';
   await fs.writeFile(lock, 'busy');
   r = run(make('2026-10-12T18:00:00.000Z', 10));

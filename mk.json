@@ -2,6 +2,7 @@
   "version": 2,
   "goals": {
     "check": [
+      "check-analytics",
       "check-state",
       "check-runtime",
       "check-test",
@@ -57,6 +58,7 @@
     },
     "test": {
       "prerequisites": [
+        "check-analytics",
         "check-state",
         "check-runtime",
         "check-test"
@@ -85,6 +87,16 @@
         "args": [
           "run",
           "build"
+        ]
+      }
+    },
+    "check-analytics": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "src/analytics.mjs"
         ]
       }
     }
