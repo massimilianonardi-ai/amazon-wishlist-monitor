@@ -75,3 +75,37 @@ jobs:
             exit 0
           fi
           gh release create "$tag" artifacts/*.tar.gz --target "$GITHUB_SHA" --title "$tag" --generate-notes
+
+  pkg-integration:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: massimilianonardi-ai/rumiai-os
+          ref: 078c39993f4e6226c969c00506e93da137c4ca27
+          path: rumiai-os
+      - name: Exercise published monitor through public pkg launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./rumiai-os/m osarch update
+          ./rumiai-os/m pkg install nodejs
+          ./rumiai-os/m pkg default nodejs
+          ./rumiai-os/m pkg install electron-web-control@v0.1.5
+          ./rumiai-os/m pkg provider default web-control electron-web-control@v0.1.5
+          ./rumiai-os/m pkg install amazon-wishlist-extract@v0.1.0 amazon-wishlist-monitor@v0.1.0
+          ./rumiai-os/m pkg default amazon-wishlist-monitor
+          test -L rumiai-os/bin/ext/amazon-wishlist-monitor
+          cat > "$RUNNER_TEMP/extract-fixture" <<'STUB'
+          #!/bin/sh
+          cat <<'JSON'
+          {"checkedAt":"2026-10-12T12:00:00.000Z","wishlistUrl":"https://www.amazon.it/hz/wishlist/ls/EXAMPLE","complete":true,"blocked":false,"failure":null,"completionReason":"stable-bottom","itemCount":1,"items":[{"asin":"B012345678","title":"Example","url":"https://www.amazon.it/dp/B012345678","price":{"verified":true,"currency":"EUR","cents":1500},"purchaseAction":"add-to-cart"}]}
+          JSON
+          STUB
+          chmod 700 "$RUNNER_TEMP/extract-fixture"
+          AMAZON_WISHLIST_EXTRACT_COMMAND="$RUNNER_TEMP/extract-fixture" ./rumiai-os/m amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/EXAMPLE' "$RUNNER_TEMP/monitor.json"
+          node -e 'const s=require(process.argv[1]); if(s.checks.length!==1||s.checks[0].items[0].price.cents!==1500)process.exit(1)' "$RUNNER_TEMP/monitor.json"
+          echo 'Released monitor public pkg launcher and atomic state creation: PASS'
