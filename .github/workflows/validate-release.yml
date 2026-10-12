@@ -1,0 +1,77 @@
+name: validate and release Amazon wishlist monitor
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: massimilianonardi-ai/rumiai-os
+          ref: 078c39993f4e6226c969c00506e93da137c4ca27
+          path: rumiai-os
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Prepare canonical mk runtime
+        run: |
+          cp -a rumiai-os "$RUNNER_TEMP/rumiai-os"
+          "$RUNNER_TEMP/rumiai-os/m" osarch update
+          "$RUNNER_TEMP/rumiai-os/m" pkg install nodejs
+          "$RUNNER_TEMP/rumiai-os/m" pkg default nodejs
+      - name: Canonical check test build
+        run: '"$RUNNER_TEMP/rumiai-os/m" mk --project "$PWD" check test build'
+      - name: Verify release archive
+        run: |
+          test -s dist/amazon-wishlist-monitor-v0.1.0-all.tar.gz
+          tar -tzf dist/amazon-wishlist-monitor-v0.1.0-all.tar.gz > /tmp/amazon-monitor-files
+          grep -Fx 'amazon-wishlist-monitor/bin/amazon-wishlist-monitor' /tmp/amazon-monitor-files
+          grep -Fx 'amazon-wishlist-monitor/src/monitor.mjs' /tmp/amazon-monitor-files
+          grep -Fx 'amazon-wishlist-monitor/src/state.mjs' /tmp/amazon-monitor-files
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amazon-wishlist-monitor-all
+          path: dist/amazon-wishlist-monitor-v*-all.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - run: npm test
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: amazon-wishlist-monitor-all
+          path: artifacts
+      - name: Publish immutable version if absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists; no overwrite"
+            exit 0
+          fi
+          gh release create "$tag" artifacts/*.tar.gz --target "$GITHUB_SHA" --title "$tag" --generate-notes
