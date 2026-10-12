@@ -4,7 +4,8 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
-import { reconcile, updateProduct, validateState, wishlistIdentity } from './state.mjs';
+import { reconcile, updateProduct, importSettings, validateState, wishlistIdentity } from './state.mjs';
+import { readLegacySheetCsv } from './legacy-sheet.mjs';
 
 const execFileAsync = promisify(execFile);
 async function readState(file, identity) {
@@ -139,6 +140,33 @@ export async function edit(filename, asin, changes) {
   }
 }
 
+
+export async function importSheet(filename, csvFilename) {
+  const file = path.resolve(filename);
+  const csv = readLegacySheetCsv(await fs.readFile(csvFilename, 'utf8'));
+  const lock = file + '.lock';
+  let handle;
+  try {
+    handle = await fs.open(lock, 'wx', 0o600);
+  } catch (error) {
+    if (error.code === 'EEXIST') throw new Error('monitor state is locked: ' + lock);
+    throw error;
+  }
+  try {
+    const previous = JSON.parse(await fs.readFile(file, 'utf8'));
+    const identity = wishlistIdentity(previous.wishlistUrl);
+    const result = importSettings(previous, identity, csv);
+    await atomicWrite(file, result.state);
+    return {
+      stateFile: file, imported: result.imported, skipped: result.skipped,
+      historyLength: result.state.checks.length
+    };
+  } finally {
+    await handle.close();
+    await fs.unlink(lock);
+  }
+}
+
 if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(process.argv[1])).href) {
   try {
     let result;
@@ -148,6 +176,12 @@ if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(proc
       result = await edit(process.argv[3], process.argv[4], {
         targetCents: parseTarget(process.argv[5])
       });
+    } else if (process.argv.length === 5 && process.argv[2] === 'import-sheet') {
+      result = await importSheet(process.argv[3], process.argv[4]);
+    } else if (process.argv.length === 6 && process.argv[2] === 'baseline') {
+      result = await edit(process.argv[3], process.argv[4], {
+        legacyMinimumCents: parseTarget(process.argv[5])
+      });
     } else if (process.argv.length === 6 && process.argv[2] === 'note') {
       result = await edit(process.argv[3], process.argv[4], {
         note: process.argv[5] === 'clear' ? '' : process.argv[5]
@@ -156,6 +190,8 @@ if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(proc
       console.error('usage: amazon-wishlist-monitor <wishlist-url> <state.json>');
       console.error('       amazon-wishlist-monitor target <state.json> <ASIN> <EUR|clear>');
       console.error('       amazon-wishlist-monitor note <state.json> <ASIN> <text|clear>');
+      console.error('       amazon-wishlist-monitor baseline <state.json> <ASIN> <EUR|clear>');
+      console.error('       amazon-wishlist-monitor import-sheet <state.json> <tab.csv>');
       process.exitCode = 2;
     }
     if (result) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
