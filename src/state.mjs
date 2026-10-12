@@ -160,6 +160,15 @@ export function updateProduct(state, wishlistUrl, asin, changes, updatedAt = new
     }
     next.targetCents = target;
   }
+  if (Object.hasOwn(changes, 'legacyMinimumCents')) {
+    const minimum = changes.legacyMinimumCents;
+    if (minimum !== null && (!Number.isSafeInteger(minimum) || minimum <= 0)) {
+      throw new TypeError('legacyMinimumCents must be positive cents or null');
+    }
+    // Never replace a smaller known historic minimum with a larger value.
+    next.legacyMinimumCents = minimum === null ? null :
+      Math.min(minimum, next.legacyMinimumCents ?? minimum);
+  }
   if (Object.hasOwn(changes, 'note')) {
     if (typeof changes.note !== 'string') throw new TypeError('note must be a string');
     next.note = changes.note;
@@ -171,5 +180,53 @@ export function updateProduct(state, wishlistUrl, asin, changes, updatedAt = new
     products,
     summary: summarizeProducts(products, state.checks.at(-1)),
     updatedAt
+  };
+}
+
+
+/** Import historical target, minimum and notes without importing membership.
+ * Unknown ASINs are counted/skipped: only Amazon extraction adds products. */
+export function importSettings(state, wishlistUrl, rows, updatedAt = new Date().toISOString()) {
+  const identity = wishlistIdentity(wishlistUrl);
+  utc(updatedAt);
+  validateState(state, identity);
+  if (!state || !Array.isArray(rows)) throw new TypeError('existing state and rows required');
+  const currentSettings = state.format === FORMAT ? validateSettings(state.products) : {};
+  const known = new Set(state.checks.flatMap(check => check.items.map(item => item.asin)));
+  const changes = { ...currentSettings };
+  const seen = new Set();
+  let imported = 0, skipped = 0;
+  for (const row of rows) {
+    if (!row || !ASIN.test(row.asin) || seen.has(row.asin)) {
+      throw new TypeError('invalid or duplicate imported ASIN');
+    }
+    seen.add(row.asin);
+    if (!known.has(row.asin)) { skipped++; continue; }
+    const prev = changes[row.asin] || {};
+    const next = { ...prev };
+    for (const field of ['targetCents', 'legacyMinimumCents']) {
+      if (row[field] === null || row[field] === undefined) continue;
+      if (!Number.isSafeInteger(row[field]) || row[field] <= 0) {
+        throw new TypeError('invalid imported ' + field);
+      }
+      next[field] = field === 'legacyMinimumCents'
+        ? Math.min(row[field], prev[field] ?? row[field])
+        : row[field];
+    }
+    if (row.note) {
+      if (typeof row.note !== 'string') throw new TypeError('invalid imported note');
+      next.note = row.note;
+    }
+    changes[row.asin] = next;
+    imported++;
+  }
+  const products = projectProducts(state.checks, changes);
+  return {
+    state: {
+      ...state, format: FORMAT, products,
+      summary: summarizeProducts(products, state.checks.at(-1)),
+      updatedAt
+    },
+    imported, skipped
   };
 }
