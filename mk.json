@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "goals": {
+    "check": [
+      "check-state",
+      "check-runtime",
+      "check-test",
+      "check-build"
+    ],
+    "test": [
+      "test"
+    ],
+    "build": [
+      "build-release"
+    ]
+  },
+  "operations": {
+    "check-state": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "src/state.mjs"
+        ]
+      }
+    },
+    "check-runtime": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "src/monitor.mjs"
+        ]
+      }
+    },
+    "check-test": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "tests/test-cli.mjs"
+        ]
+      }
+    },
+    "check-build": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "scripts/build-release.mjs"
+        ]
+      }
+    },
+    "test": {
+      "prerequisites": [
+        "check-state",
+        "check-runtime",
+        "check-test"
+      ],
+      "action": {
+        "type": "process",
+        "command": "npm",
+        "args": [
+          "test"
+        ]
+      }
+    },
+    "build-release": {
+      "prerequisites": [
+        "test",
+        "check-build"
+      ],
+      "outputs": {
+        "artifact": {
+          "path": "dist/release-artifact"
+        }
+      },
+      "action": {
+        "type": "process",
+        "command": "npm",
+        "args": [
+          "run",
+          "build"
+        ]
+      }
+    }
+  }
+}

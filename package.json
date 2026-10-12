@@ -1,0 +1,14 @@
+{
+  "name": "amazon-wishlist-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "check": "node --check src/state.mjs && node --check src/monitor.mjs && node --check scripts/build-release.mjs",
+    "test": "node tests/test-state.mjs && node tests/test-cli.mjs",
+    "build": "node scripts/build-release.mjs"
+  }
+}
