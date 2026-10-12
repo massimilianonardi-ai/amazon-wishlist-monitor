@@ -69,11 +69,12 @@ try {
   ]);
   assert.equal(r.status, 1);
   assert.equal(JSON.parse(await fs.readFile(state, 'utf8')).products.B012345678.targetCents, 2599);
+  const contentAfterEdits = await fs.readFile(state, 'utf8');
   const lock = state + '.lock';
   await fs.writeFile(lock, 'busy');
   r = run(make('2026-10-12T18:00:00.000Z', 10));
   assert.equal(r.status, 1);
-  assert.equal(await fs.readFile(state, 'utf8'), content);
+  assert.equal(await fs.readFile(state, 'utf8'), contentAfterEdits);
   await fs.unlink(lock);
   assert.equal((await fs.stat(state)).mode & 0o077, 0);
   console.log('monitor CLI persistence: PASS');
