@@ -7,7 +7,8 @@
       "check-state",
       "check-runtime",
       "check-test",
-      "check-build"
+      "check-build",
+      "check-report"
     ],
     "test": [
       "test"
@@ -62,7 +63,8 @@
         "check-analytics",
         "check-state",
         "check-runtime",
-        "check-test"
+        "check-test",
+        "check-report"
       ],
       "action": {
         "type": "process",
@@ -108,6 +110,16 @@
         "args": [
           "--check",
           "src/legacy-sheet.mjs"
+        ]
+      }
+    },
+    "check-report": {
+      "action": {
+        "type": "process",
+        "command": "node",
+        "args": [
+          "--check",
+          "src/report.mjs"
         ]
       }
     }

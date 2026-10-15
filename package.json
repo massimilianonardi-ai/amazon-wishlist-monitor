@@ -1,14 +1,14 @@
 {
   "name": "amazon-wishlist-monitor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=26 <27"
   },
   "scripts": {
-    "check": "node --check src/legacy-sheet.mjs && node --check src/analytics.mjs && node --check src/state.mjs && node --check src/monitor.mjs && node --check scripts/build-release.mjs",
-    "test": "node tests/test-state.mjs && node tests/test-cli.mjs && node tests/test-analytics.mjs",
+    "check": "node --check src/legacy-sheet.mjs && node --check src/analytics.mjs && node --check src/report.mjs && node --check src/state.mjs && node --check src/monitor.mjs && node --check scripts/build-release.mjs",
+    "test": "node tests/test-state.mjs && node tests/test-cli.mjs && node tests/test-analytics.mjs && node tests/test-report.mjs",
     "build": "node scripts/build-release.mjs"
   }
 }

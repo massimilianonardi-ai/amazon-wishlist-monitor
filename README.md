@@ -21,6 +21,29 @@ srv start web-control
 amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' ./watch-state.json
 ```
 
+## Offline HTML report (v0.3.0)
+
+Every successful wishlist poll generates **two sibling files**:
+
+- `watch-state.json` — authoritative price history, analytics and targets;
+- `watch-state.html` — self-contained, read-only dashboard computed from that state.
+
+```sh
+amazon-wishlist-monitor 'https://www.amazon.it/hz/wishlist/ls/<ID>' ./watch-state.json
+```
+
+The HTML is refreshed after a successful poll **and** after every `target`, `note`, `baseline` or `import-sheet` command, so user-owned changes are visible without another Amazon access. An incomplete or blocked extraction does not change either file. The report displays the verified current quote, change from previous, monitored minimum, target and target gap, target state, last check, 7-/30-day trend and an optional price sparkline. It also shows active/missing/unverified distinctions, notes and expandable detailed stats. Search, filters and sorting work locally. No CSS/JS libraries, CDNs, tracking, external scripts, Google credentials or online calls are required.
+
+To regenerate just the HTML from the saved JSON without contacting Amazon:
+
+```sh
+amazon-wishlist-monitor report ./watch-state.json
+```
+
+The HTML report is a **derived view**, not the source of product data or notification state. Its rows are deliberately read-only: edit user target/note through the public monitor CLI, not by changing the HTML. The `Target notificato` field of the legacy Google Sheet belongs to the external notification/delivery component and is not invented in this report.
+
+State and HTML are each published by atomic rename, with the state JSON committed first as the authoritative artifact. A rare filesystem failure during HTML publication can leave the prior HTML beside the newer JSON; the command reports a failure and `report <state.json>` rebuilds the HTML without re-extracting. This is not a multi-file atomic transaction.
+
 ## Product monitoring model (JSON v2)
 
 `amazon-wishlist-monitor/v2` has two complementary structures:
