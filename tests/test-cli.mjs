@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'amazon-wishlist-monitor-'));
 const state = path.join(temp, 'monitor.json');
+const htmlFile = path.join(temp, 'monitor.html');
 const extractor = path.join(temp, 'fake-extractor');
 const url = 'https://www.amazon.it/hz/wishlist/ls/SYNTHETIC123';
 const first = '2026-10-12T10:00:00.000Z';
@@ -34,6 +35,10 @@ try {
   let r = run(make(first, 3200));
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).historyLength, 1);
+  assert.equal(JSON.parse(r.stdout).reportFile, htmlFile);
+  let html = await fs.readFile(htmlFile, 'utf8');
+  assert.match(html, /Amazon Price Monitor/);
+  assert.match(html, /€ 32,00/);
   r = run(make(later, 2900));
   assert.equal(r.status, 0, r.stderr);
   const content = await fs.readFile(state, 'utf8');
@@ -42,20 +47,28 @@ try {
   assert.equal(history.checks[0].items[0].price.cents, 3200);
   assert.equal(history.checks[1].items[0].price.cents, 2900);
   assert.equal(history.lastCheckedAt, later);
+  html = await fs.readFile(htmlFile, 'utf8');
+  assert.match(html, /€ 29,00/);
+  const htmlBeforeFailure = html;
   r = run(make('2026-10-12T18:00:00.000Z', 10, { complete: false }));
   assert.equal(r.status, 1);
   assert.equal(await fs.readFile(state, 'utf8'), content);
+  assert.equal(await fs.readFile(htmlFile, 'utf8'), htmlBeforeFailure);
   r = run(make('2026-10-12T18:00:00.000Z', 10), [
     'https://www.amazon.it/hz/wishlist/ls/OTHER', state
   ]);
   assert.equal(r.status, 1);
   assert.equal(await fs.readFile(state, 'utf8'), content);
+  assert.equal(await fs.readFile(htmlFile, 'utf8'), htmlBeforeFailure);
   r = run(make('2026-10-12T18:00:00.000Z', 10), [
     'target', state, 'B012345678', '25,99'
   ]);
   assert.equal(r.status, 0, r.stderr);
   let edited = JSON.parse(await fs.readFile(state, 'utf8'));
   assert.equal(edited.products.B012345678.targetCents, 2599);
+  html = await fs.readFile(htmlFile, 'utf8');
+  assert.match(html, /€ 25,99/);
+  assert.match(html, /Sopra target/);
   assert.equal(edited.products.B012345678.targetGapCents, 301);
   assert.equal(edited.checks.length, 2);
   r = run(make('2026-10-12T18:00:00.000Z', 10), [
@@ -64,6 +77,8 @@ try {
   assert.equal(r.status, 0, r.stderr);
   edited = JSON.parse(await fs.readFile(state, 'utf8'));
   assert.equal(edited.products.B012345678.note, 'Sconto interessante');
+  html = await fs.readFile(htmlFile, 'utf8');
+  assert.match(html, /Sconto interessante/);
   r = run(make('2026-10-12T18:00:00.000Z', 10), [
     'target', state, 'B012345678', 'wrong'
   ]);
@@ -91,6 +106,7 @@ try {
   assert.equal(edited.products.B012345678.lowestPriceCents, 2000);
   assert.equal(edited.products.B012345678.lowestPriceSource, 'legacy-sheet');
   assert.equal(edited.products.B012345678.note, 'Note, speciali');
+  assert.match(await fs.readFile(htmlFile, 'utf8'), /Note, speciali/);
   assert.equal(edited.checks.length, 2);
   r = run(make('2026-10-12T18:00:00.000Z', 10), [
     'baseline', state, 'B012345678', '18,00'
@@ -98,12 +114,22 @@ try {
   assert.equal(r.status, 0, r.stderr);
   edited = JSON.parse(await fs.readFile(state, 'utf8'));
   assert.equal(edited.products.B012345678.lowestPriceCents, 1800);
+  const jsonBeforeReport = await fs.readFile(state, 'utf8');
+  await fs.unlink(htmlFile);
+  r = run(make('2026-10-12T18:00:00.000Z', 10), [
+    'report', state
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).reportFile, htmlFile);
+  assert.match(await fs.readFile(htmlFile, 'utf8'), /€ 18,00/);
+  assert.equal(await fs.readFile(state, 'utf8'), jsonBeforeReport);
   const contentAfterEdits = await fs.readFile(state, 'utf8');
   const lock = state + '.lock';
   await fs.writeFile(lock, 'busy');
   r = run(make('2026-10-12T18:00:00.000Z', 10));
   assert.equal(r.status, 1);
   assert.equal(await fs.readFile(state, 'utf8'), contentAfterEdits);
+  assert.match(await fs.readFile(htmlFile, 'utf8'), /€ 18,00/);
   await fs.unlink(lock);
   assert.equal((await fs.stat(state)).mode & 0o077, 0);
   console.log('monitor CLI persistence: PASS');
