@@ -209,10 +209,10 @@ export async function regenerateReport(filename) {
 if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(process.argv[1])).href) {
   try {
     let result;
-    if (process.argv.length === 4) {
-      result = await run(process.argv[2], process.argv[3]);
-    } else if (process.argv.length === 4 && process.argv[2] === 'report') {
+    if (process.argv.length === 4 && process.argv[2] === 'report') {
       result = await regenerateReport(process.argv[3]);
+    } else if (process.argv.length === 4) {
+      result = await run(process.argv[2], process.argv[3]);
     } else if (process.argv.length === 6 && process.argv[2] === 'target') {
       result = await edit(process.argv[3], process.argv[4], {
         targetCents: parseTarget(process.argv[5])

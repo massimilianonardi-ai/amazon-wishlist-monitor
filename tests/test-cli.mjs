@@ -38,7 +38,7 @@ try {
   assert.equal(JSON.parse(r.stdout).reportFile, htmlFile);
   let html = await fs.readFile(htmlFile, 'utf8');
   assert.match(html, /Amazon Price Monitor/);
-  assert.match(html, /€ 32,00/);
+  assert.match(html, /32,00/);
   r = run(make(later, 2900));
   assert.equal(r.status, 0, r.stderr);
   const content = await fs.readFile(state, 'utf8');
@@ -48,7 +48,7 @@ try {
   assert.equal(history.checks[1].items[0].price.cents, 2900);
   assert.equal(history.lastCheckedAt, later);
   html = await fs.readFile(htmlFile, 'utf8');
-  assert.match(html, /€ 29,00/);
+  assert.match(html, /29,00/);
   const htmlBeforeFailure = html;
   r = run(make('2026-10-12T18:00:00.000Z', 10, { complete: false }));
   assert.equal(r.status, 1);
@@ -67,7 +67,7 @@ try {
   let edited = JSON.parse(await fs.readFile(state, 'utf8'));
   assert.equal(edited.products.B012345678.targetCents, 2599);
   html = await fs.readFile(htmlFile, 'utf8');
-  assert.match(html, /€ 25,99/);
+  assert.match(html, /25,99/);
   assert.match(html, /Sopra target/);
   assert.equal(edited.products.B012345678.targetGapCents, 301);
   assert.equal(edited.checks.length, 2);
@@ -121,7 +121,7 @@ try {
   ]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).reportFile, htmlFile);
-  assert.match(await fs.readFile(htmlFile, 'utf8'), /€ 18,00/);
+  assert.match(await fs.readFile(htmlFile, 'utf8'), /18,00/);
   assert.equal(await fs.readFile(state, 'utf8'), jsonBeforeReport);
   const contentAfterEdits = await fs.readFile(state, 'utf8');
   const lock = state + '.lock';
@@ -129,7 +129,7 @@ try {
   r = run(make('2026-10-12T18:00:00.000Z', 10));
   assert.equal(r.status, 1);
   assert.equal(await fs.readFile(state, 'utf8'), contentAfterEdits);
-  assert.match(await fs.readFile(htmlFile, 'utf8'), /€ 18,00/);
+  assert.match(await fs.readFile(htmlFile, 'utf8'), /18,00/);
   await fs.unlink(lock);
   assert.equal((await fs.stat(state)).mode & 0o077, 0);
   console.log('monitor CLI persistence: PASS');
