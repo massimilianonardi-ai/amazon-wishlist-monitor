@@ -6,6 +6,7 @@ import process from 'node:process';
 import { promisify } from 'node:util';
 import { reconcile, updateProduct, importSettings, validateState, wishlistIdentity } from './state.mjs';
 import { readLegacySheetCsv } from './legacy-sheet.mjs';
+import { renderHtmlReport, htmlReportPath } from './report.mjs';
 
 const execFileAsync = promisify(execFile);
 async function readState(file, identity) {
@@ -47,7 +48,7 @@ async function atomicWrite(file, data) {
   let handle;
   try {
     handle = await fs.open(temp, 'wx', 0o600);
-    await handle.writeFile(JSON.stringify(data, null, 2) + '\n', 'utf8');
+    await handle.writeFile(typeof data === 'string' ? data : JSON.stringify(data, null, 2) + '\n', 'utf8');
     await handle.sync();
     await handle.close();
     handle = null;
@@ -59,6 +60,17 @@ async function atomicWrite(file, data) {
     });
   }
 }
+// The JSON is authoritative. Render before changing it, then publish HTML after
+// committing the JSON. If the second write fails, the explicit "report"
+// command can safely recreate the derived HTML without repeating extraction.
+async function commitState(file, state) {
+  const reportFile = htmlReportPath(file);
+  const html = renderHtmlReport(state);
+  await atomicWrite(file, state);
+  await atomicWrite(reportFile, html);
+  return reportFile;
+}
+
 export async function run(url, filename, { getObservation = extract } = {}) {
   const identity = wishlistIdentity(url);
   if (typeof filename !== 'string' || !filename.trim()) {
@@ -78,10 +90,11 @@ export async function run(url, filename, { getObservation = extract } = {}) {
     const previous = await readState(file, identity);
     const observation = await getObservation(url);
     const next = reconcile(previous, observation, identity);
-    await atomicWrite(file, next);
+    const reportFile = await commitState(file, next);
     const last = next.checks[next.checks.length - 1];
     return {
       stateFile: file,
+      reportFile,
       wishlistUrl: identity,
       checkedAt: last.checkedAt,
       itemCount: last.itemCount,
@@ -126,9 +139,9 @@ export async function edit(filename, asin, changes) {
     const identity = wishlistIdentity(data.wishlistUrl);
     validateState(data, identity);
     const next = updateProduct(data, identity, asin, changes);
-    await atomicWrite(file, next);
+    const reportFile = await commitState(file, next);
     return {
-      stateFile: file, asin,
+      stateFile: file, reportFile, asin,
       targetCents: next.products[asin].targetCents,
       note: next.products[asin].note,
       targetReached: next.products[asin].targetReached,
@@ -156,11 +169,37 @@ export async function importSheet(filename, csvFilename) {
     const previous = JSON.parse(await fs.readFile(file, 'utf8'));
     const identity = wishlistIdentity(previous.wishlistUrl);
     const result = importSettings(previous, identity, csv);
-    await atomicWrite(file, result.state);
+    const reportFile = await commitState(file, result.state);
     return {
-      stateFile: file, imported: result.imported, skipped: result.skipped,
+      stateFile: file, reportFile, imported: result.imported, skipped: result.skipped,
       historyLength: result.state.checks.length
     };
+  } finally {
+    await handle.close();
+    await fs.unlink(lock);
+  }
+}
+
+/** Rebuild the HTML from the saved JSON without visiting Amazon or touching history. */
+export async function regenerateReport(filename) {
+  if (typeof filename !== 'string' || !filename.trim()) {
+    throw new TypeError('monitor JSON pathname is required');
+  }
+  const file = path.resolve(filename), lock = file + '.lock';
+  let handle;
+  try { handle = await fs.open(lock, 'wx', 0o600); }
+  catch (error) {
+    if (error.code === 'EEXIST') throw new Error('monitor state is locked: ' + lock);
+    throw error;
+  }
+  try {
+    const info = await fs.lstat(file);
+    if (!info.isFile()) throw new Error('state must be a regular file');
+    const state = JSON.parse(await fs.readFile(file, 'utf8'));
+    const html = renderHtmlReport(state);
+    const reportFile = htmlReportPath(file);
+    await atomicWrite(reportFile, html);
+    return { stateFile: file, reportFile, checkedAt: state.lastCheckedAt };
   } finally {
     await handle.close();
     await fs.unlink(lock);
@@ -172,6 +211,8 @@ if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(proc
     let result;
     if (process.argv.length === 4) {
       result = await run(process.argv[2], process.argv[3]);
+    } else if (process.argv.length === 4 && process.argv[2] === 'report') {
+      result = await regenerateReport(process.argv[3]);
     } else if (process.argv.length === 6 && process.argv[2] === 'target') {
       result = await edit(process.argv[3], process.argv[4], {
         targetCents: parseTarget(process.argv[5])
@@ -188,6 +229,7 @@ if (process.argv[1] && import.meta.url === new URL('file://' + path.resolve(proc
       });
     } else {
       console.error('usage: amazon-wishlist-monitor <wishlist-url> <state.json>');
+      console.error('       amazon-wishlist-monitor report <state.json>');
       console.error('       amazon-wishlist-monitor target <state.json> <ASIN> <EUR|clear>');
       console.error('       amazon-wishlist-monitor note <state.json> <ASIN> <text|clear>');
       console.error('       amazon-wishlist-monitor baseline <state.json> <ASIN> <EUR|clear>');
